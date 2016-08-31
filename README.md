@@ -3,7 +3,7 @@ Parallel implementation of Moment-Based Estimation for Hierarchical Models (R Pa
 
 DEMO: fit three-levels multilevel GLM. 
 
-```
+```r
 library(mbest)
 ## generate data
 set.seed(12345)
