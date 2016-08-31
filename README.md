@@ -94,7 +94,13 @@ head(coef.eb[[3]])
 ## 1:1:4 -0.02303099  0.19919693
 ## 1:1:5  0.32545163 -0.15849075
 ## 1:1:6 -0.14832079 -0.02758480
-
-
-
 ```
+### Time and perfomance evaluation for mnest vs. mhglm-multilevel
+
+From left to right:
+* Elapsed time (in seconds)
+* Squared-sum loss for fixed effects: sum((beta - beta_hat)^2)
+* Normalized sqaured-sum loss for random effects at level 1/2/3: sum((ranef_hat - ranef)^T * Sigma^(-1) * (ranef_hat - ranef))
+* James-Stein quadratic loss function for covariance matrix at level 1/2/3: tr((Sigma_hat * Sigma^(-1) - I)^2)
+* Squared-mean loss for predicted value: mean((y - y_hat)^2)
+
