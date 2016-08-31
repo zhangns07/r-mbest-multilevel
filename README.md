@@ -97,7 +97,9 @@ head(coef.eb[[3]])
 ```
 ### Time and perfomance evaluation for mnest vs. mhglm-multilevel
 
-From left to right:
+![alt text](https://github.com/zhangns07/miscellaneous/blob/master/compare.twopackages.gaussian.png)
+
+This plot compares performance of mnest package vs. mhglm-multilevel package. Two colors indicates two methods. The line shows 50% value within 20 repications; the ribbons show the 5% - 95% range. The x-axis is the log_10 number of observations, and y-axis is the log_10 value of the following:
 * Elapsed time (in seconds)
 * Squared-sum loss for fixed effects: sum((beta - beta_hat)^2)
 * Normalized sqaured-sum loss for random effects at level 1/2/3: sum((ranef_hat - ranef)^T * Sigma^(-1) * (ranef_hat - ranef))
