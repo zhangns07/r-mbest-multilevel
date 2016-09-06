@@ -24,6 +24,7 @@ if(getRversion() >= "3.3.0") {
 importFrom("bigmemory", as.big.matrix)
 importFrom("logging", loginfo)
 importFrom("foreach", foreach, "%dopar%")
+importFrom("abind", abind)
 
 
 ## Exports
@@ -36,9 +37,7 @@ export(mhglm.control)
 export(mhglm.fit)
 export(ranef.mhglm)
 export(sigma.mhglm)
-
 export(mhglm.fit.multilevel)
-export(ebayes.est.multilevel)
 
 ## Methods
 S3method(coef,mhglm)

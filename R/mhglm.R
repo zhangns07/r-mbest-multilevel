@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# - xlevels is NULL
+# - passing in group in newdata doesn't matter
 
 
 mhglm.control <- function(standardize = TRUE, steps = 1, 
@@ -42,7 +44,7 @@ mhglm.control <- function(standardize = TRUE, steps = 1,
 
 mhglm <- function(formula, family = gaussian, data, weights, subset,
                   na.action, start = NULL, etastart, mustart, offset,
-                  control = list(), model = TRUE, method = "mhglm.fit",
+                  control = list(), model = TRUE, method = "mhglm.fit.multilevel",
                   x = FALSE, z = FALSE, y = TRUE, group = TRUE,
                   contrasts = NULL)
 {
@@ -104,29 +106,39 @@ mhglm <- function(formula, family = gaussian, data, weights, subset,
                      logger="mbest.mhglm")
 
     bars <- lme4::findbars(formula)
-    if (length(bars) >= 2L)
-        stop("Can specify at most one random effect term")
-    if (length(bars) == 1L) {
-        b <- bars[[1L]]
-        mf1 <- mf
-        for (v in all.vars(b[[3L]])) {
-            mf1[[v]] <- factor(mf1[[v]])
-        }
-        group.call <- substitute(factor(fac), list(fac = b[[3L]]))
-        Group <- eval(group.call, mf1)
+    if (length(bars) >= 1L) {
+      Z <- list()
+      Group <- list()
+      group.call <- list()
+      mt.random <- list()
 
-        if (all(is.na(Group)))
-            stop("Invalid grouping factor specification, ", deparse(b[[3L]]))
+      for(i in seq_along(bars)){
+	b <- bars[[i]]
+	mf1 <- mf
+	for (v in all.vars(b[[3L]])) {
+	  mf1[[v]] <- factor(mf1[[v]])
+	}
+	group.call.tmp <- substitute(factor(fac), list(fac = b[[3L]]))
+	group.tmp <- eval(group.call.tmp, mf1)
 
-        mt.random <- terms(eval(substitute(~trms, list(trms = b[[2L]]))),
-                           data = data)
-        Z <- if (!is.empty.model(mt.random))
-            model.matrix(mt.random, mf, contrasts)
-        else matrix(, NROW(Y), 0L)
+	if (all(is.na(group.tmp)))
+	  stop("Invalid grouping factor specification, ", deparse(b[[3L]]))
+
+	mt.random.tmp <- terms(eval(substitute(~trms, list(trms = b[[2L]]))),
+			   data = data)
+	z.tmp <- if (!is.empty.model(mt.random.tmp)){
+	  model.matrix(mt.random.tmp, mf, contrasts)
+	}else matrix(, NROW(Y), 0L)
+
+	Z[[i]] <- z.tmp
+	Group[[i]] <- group.tmp
+	group.call[[i]] <- group.call.tmp
+	mt.random[[i]] <- mt.random.tmp
+      } 
     } else { # length(bars) == 0L
-        Group <- factor(character(NROW(Y)))
-        mt.random <- terms(~ -1, data=data)
-        Z <- matrix(, NROW(Y), 0L)
+      Group <- factor(character(NROW(Y)))
+      mt.random <- terms(~ -1, data=data)
+      Z <- matrix(, NROW(Y), 0L)
     }
 
     logging::loginfo("Setting weights", logger="mbest.mhglm")
@@ -161,14 +173,16 @@ mhglm <- function(formula, family = gaussian, data, weights, subset,
     fit$contrasts.fixed <- attr(X, "contrasts")
     fit$contrasts.random <- attr(Z, "contrasts")
 
-    xlevels <- .getXlevels(mt.fixed, mf)
-    xlevels.random <- .getXlevels(mt.random, mf)
-    for (i in names(xlevels.random)) {
-        xlevels[[i]] <- xlevels.random[[i]]
-    }
-    fit$xlevels <- xlevels
-    fit$group.levels <- levels(Group)
+#    xlevels <- .getXlevels(mt.fixed, mf)
+#    #xlevels.random <- .getXlevels(mt.random, mf)
+#    xlevels.random <- lapply(mt.random, function(x){.getXlevels(x, mf)})
+#
+#    for (i in names(xlevels.random)) {
+#        xlevels[[i]] <- xlevels.random[[i]]
+#    }
+#    fit$xlevels <- xlevels
 
+    fit$group.levels <- lapply(Group, levels)
     fit$call <- call
     fit$control <- control
     fit$terms <- mt
@@ -226,22 +240,30 @@ model.frame.mhglm <- function(formula, ...)
 model.matrix.mhglm <- function(object, type=c("fixed", "random"), ...)
 {
     type <- match.arg(type)
-    contrasts <- switch(type,
-                        fixed = object$contrasts.fixed,
-                        random = object$contrasts.random)
+
     mf <- model.frame(object)
     mt <- terms(object, type)
 
-    if (!is.empty.model(mt))
-        model.matrix(mt, mf, contrasts)
-    else matrix(, nobs(object), 0L)
-}
+    if(type == 'fixed'){
+      if (!is.empty.model(mt)){
+	re <-  model.matrix(mt, mf, object$contrasts.fixed)
+      } else {re <- matrix(, nobs(object), 0L)}
+    } else if (type == 'random'){
+      if(all( !unlist(lapply(mt,is.empty.model)))){
+	re <-  lapply(mt,function(x){model.matrix(x, mf, object$contrasts.random)})
+      } else {re <- matrix(, nobs(object), 0L)}
+    } else {
+      stop('Wrong type')
+    }
 
+    re
+}
 
 predict.mhglm <- function(object, newdata = NULL,
                           type = c("link", "response"),
                           se.fit = FALSE, na.action = na.pass, ...)
 {
+# TODO: when newdata is not NULL, things get weird
     type <- match.arg(type)
 
     tt.fixed <- terms(object, "fixed")
@@ -271,36 +293,50 @@ predict.mhglm <- function(object, newdata = NULL,
             offset <- offset + eval(object$call$offset, newdata)
     }
 
-    mg <- m
-    for (v in all.vars(object$group.call)) {
-        mg[[v]] <- factor(mg[[v]])
+    group <- list()
+    for(r in seq_along(object$group.call)){
+      mg <- m
+      for (v in all.vars(object$group.call[[r]])) {
+	mg[[v]] <- factor(mg[[v]])
+      }
+      group[[r]] <- eval(object$group.call[[r]],mg)
     }
-    group <- eval(object$group.call, mg)
 
-    re <- ranef(object, condVar=se.fit)[[1]]
+    re <- ranef(object, condVar=se.fit)
     eta <- drop(x %*% fixef(object))
-    group.ix <- match(group, object$group.levels)
-    old <- !is.na(group.ix)
-    eta[old] <- eta[old] + rowSums(z[old,,drop=FALSE]
-                                   * re[group.ix[old],,drop=FALSE])
+
+    for(r in seq_len(length(re))){
+      group.ix <- match(group[[r]], object$group.levels[[r]])
+      old <- !is.na(group.ix)
+      eta[old] <- eta[old] + rowSums(z[[r]][old,,drop=FALSE]
+				     * re[[r]][group.ix[old],,drop=FALSE])
+    }
+
     if (!is.null(offset))
         eta <- eta + offset
 
     if (se.fit) {
         eta.se2 <- pmax(0, rowSums((x %*% vcov(object)) * x))
-        re.sigma <- attr(re, "postVar")
-        sigma0 <- VarCorr(object)[[1]]
-        for (i in seq_along(eta)) {
-            zi <- drop(z[i,])
+	var.corr <- VarCorr(object)
+
+	for(r in seq_along(re)){
+	  re.sigma <- attr(re[[r]], "postVar")
+	  sigma0 <- var.corr[[r]]
+	  group.ix <- match(group[[r]], object$group.levels[[r]])
+	  old <- !is.na(group.ix)
+
+	  for (i in seq_along(eta)) {
+            zi <- drop(z[[r]][i,])
             sigma <- if (old[i])
                 re.sigma[,,group.ix[i]]
             else sigma0
 
             eta.se2[i] <- eta.se2[i] + max(0, t(zi) %*% sigma %*% zi)
-        }
+	  }
+	}
 
-        eta.se <- sqrt(eta.se2)
-        names(eta.se) <- names(eta)
+	eta.se <- sqrt(eta.se2)
+	names(eta.se) <- names(eta)
     } else {
         eta.se <- NULL
     }
@@ -320,15 +356,17 @@ predict.mhglm <- function(object, newdata = NULL,
 }
 
 
+
+
 fixef.mhglm <- function(object, ...)
 {
-    object$coefficient.mean
+    object$fit$coefficient.mean
 }
 
 
 vcov.mhglm <- function(object, ...)
 {
-    object$coefficient.mean.cov
+    object$fit$coefficient.mean.cov
 }
 
 
@@ -340,7 +378,12 @@ sigma.mhglm <- function(object, ...)
 
 VarCorr.mhglm <- function(x, sigma=1, ...)
 {
-    vc <- x$coefficient.cov
+  coef.cov.all <- x$coef.cov.all
+  varcor <- list()
+
+  for(i in seq_along(coef.cov.all)){
+
+    vc <- coef.cov.all[[i]]
     stddev <- sqrt(diag(vc))
     cor <- scale(vc, center=FALSE, scale=stddev) / stddev
 
@@ -348,13 +391,13 @@ VarCorr.mhglm <- function(x, sigma=1, ...)
     attr(vc, "stddev") <- stddev
     attr(vc, "correlation") <- cor
 
-    varcor <- list()
-    group.name <- deparse(x$group.call[[2L]])
+    group.name <- deparse(x$group.call[[i]][[2L]])
     varcor[[group.name]] <- vc
-    attr(varcor, "sc") <- sigma * sigma(x)
+    attr(varcor, "sc") <- sigma * sigma.mhglm(x)
     attr(varcor, "useSc") <- !(x$family$family %in% c("binomial", "poisson"))
     class(varcor) <- "VarCorr.mhglm"
-    varcor
+  }
+  varcor
 }
 
 
@@ -403,72 +446,31 @@ residuals.mhglm <- function(object, type = c("deviance", "pearson", "response"),
 }
 
 
-ranef.mhglm <- function(object, condVar = FALSE, ...)
-{
-    nvars <- ncol(object$coefficients)
-    xnames <- names(object$coefficient.mean)
-    ngroups <- nrow(object$coefficients)
-    gnames <- rownames(object$coefficients)
+ranef.mhglm <- function
+(object,condVar = FALSE){
 
-    R <- object$R
-    pivot <- object$pivot
-    rank <- object$rank
-    rank.fixed <- object$rank.fixed
-    rank.random <- object$rank.random
-    r1 <- seq_len(rank)
-    nfixed <- length(object$coefficient.mean)
-    nrandom <- nvars - nfixed
-    fixed <- seq_len(rank.fixed)
-    random <- rank.fixed + seq_len(rank.random)
+  coef.mean  <- object$fit$coefficient.mean
+  dispersion <- object$dispersion
 
-    R.fixed <- R[fixed,fixed,drop=FALSE]
-    pivot.fixed <- pivot[fixed]
-    coef.mean1 <- drop(R.fixed %*% object$coefficient.mean[pivot.fixed])
+  coef.cov.all <- object$coef.cov.all
+  ngroupslevel <- length(coef.cov.all)
 
-    R.random <- R[random,random,drop=FALSE]
-    pivot.random <- pivot[random] - nfixed
-    coef.cov1 <- (R.random
-                  %*% object$coefficient.cov[pivot.random,
-                                             pivot.random,
-                                             drop=FALSE] %*% t(R.random))
+  # compute ranef
+  r <- 1
+  while (r <= ngroupslevel){
+    object$fit <- ebayes.est.topdown(object$fit, condVar,
+				     coef.mean,
+				     coef.cov.all[[r]])
+    r <- r+1
+  }
 
-    coef1 <- ebayes.group.est(coefficients=object$coefficients,
-                              nfixed=rank.fixed,
-                              subspace=object$subspace,
-                              precision=object$precision,
-                              dispersion=rep(object$dispersion, ngroups),
-                              coefficient.mean=coef.mean1,
-                              coefficient.cov=coef.cov1,
-                              postVar=condVar)
-
-    # change back to original coordinates
-    r1.random <- seq_len(rank.random)
-    coef <- matrix(NA, ngroups, nrandom)
-    coef[,pivot.random[r1.random]] <- t(backsolve(R.random, t(coef1)))
-    colnames(coef) <- colnames(object$coefficient.cov)
-    rownames(coef) <- gnames
-    coef <- as.data.frame(coef)
-
-    if (condVar) {
-        cov.eb1 <- attr(coef1, "postVar")
-        cov.eb <- array(NA, c(nrandom, nrandom, ngroups))
-        dimnames(cov.eb) <- list(colnames(object$coefficient.cov),
-                                 colnames(object$coefficient.cov),
-                                 gnames)
-
-        for (i in seq_len(ngroups)) {
-            (cov.eb[pivot.random[r1.random],pivot.random[r1.random],i]
-                <- backsolve(R.random, t(backsolve(R.random, cov.eb1[,,i]))))
-        }
-
-        attr(coef, "postVar") <- cov.eb
-    }
-
-    re <- list()
-    group.name <- deparse(object$group.call[[2L]])
-    re[[group.name]] <- coef
-    class(re) <- "ranef.mhglm"
-    re
+  # print out ranef
+  coefficients.eb<- as.list(rep(NULL,ngroupslevel))
+  for(r in seq_len(ngroupslevel)){
+    coefficients.eb[[r]] <- ebayes.est.print(object$fit,r, condVar)
+  }
+  class(coefficients.eb) <- 'ranef.mhglm'
+  return(coefficients.eb)
 }
 
 
@@ -564,19 +566,28 @@ print.summary.mhglm <- function(x, digits = max(3L, getOption("digits") - 3L),
 print.mhglm <- function(x, digits = max(3L, getOption("digits") - 3L),
                         signif.stars = getOption("show.signif.stars"), ...)
 {
-    names.fixed <- names(x$coefficient.mean)
-    names.random <- colnames(x$coefficient.cov)
+    names.fixed <- names(x$fit$coefficient.mean)
+    names.random <- lapply(x$coef.cov.all, colnames)
+    #names.random <- colnames(x$coefficient.cov)
 
     # random effects
-    var <- pmax(0, diag(x$coefficient.cov))
-    sd <- sqrt(var)
-    random <- cbind(var, sd)
-    colnames(random) <- c("Variance", "Std. Dev.")
-    rownames(random) <- names.random
+    random <- list()
+
+    for(r in seq_along(x$coef.cov.all)){
+
+      var <- pmax(0, diag(x$coef.cov.all[[r]]))
+      sd <- sqrt(var)
+      random.tmp <- cbind(var, sd)
+      colnames(random.tmp) <- c("Variance", "Std. Dev.")
+      rownames(random.tmp) <- names.random[[r]]
+
+      group.name <- deparse(x$group.call[[r]][[2L]])
+      random[[group.name]] <- random.tmp
+    }
 
     # fixed effects
-    est <- x$coefficient.mean
-    est.se <- sqrt(pmax(0, diag(x$coefficient.mean.cov)))
+    est <- x$fit$coefficient.mean
+    est.se <- sqrt(pmax(0, diag(x$fit$coefficient.mean.cov)))
     tstat <- est / est.se
     if (x$family$family %in% c("binomial", "poisson")) {
         pval <- 2 * pnorm(-abs(tstat))
@@ -591,7 +602,10 @@ print.mhglm <- function(x, digits = max(3L, getOption("digits") - 3L),
         "\n", sep = "")
 
     cat("\nRandom effects:\n")
-    print(random, digits = digits, na.print = "NA", ...)
+    for(r in names(random)){
+      cat(r,"\n")
+      print(random[[r]], digits = digits, na.print = "NA", ...)
+    }
 
     cat("\nFixed effects:\n")
     printCoefmat(fixed, digits = digits, signif.stars = signif.stars,

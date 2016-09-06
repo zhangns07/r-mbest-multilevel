@@ -267,6 +267,7 @@ construct.reg <- function
 		      omega_invsqrt <- pseudo.solve.sqrt(omega)
 		      newy <- omega_invsqrt %*% x$coefficient.mean
 		      newxz <- omega_invsqrt 
+		      colnames(newxz) <- names(x$coefficient.mean)
 		      list(newy = newy, newxz = newxz) })
 
   nfixed <- length(newdata[[1]]$newy) - nrandom
@@ -284,9 +285,6 @@ construct.reg <- function
   levels <- names(fit.list)
   newgroup <- gl(ngroups, (nfixed + nrandom),labels = levels)
 
-# TODO: how to keep xnames and znames?
-#  colnames(newx) <- xnames
-#  colnames(newz) <- znames
   return(list(y = newy, x = newx, z = newz,group = newgroup))
 }
 
@@ -382,11 +380,11 @@ avg.dispersion <- function
   }
 }
 
+
 mhglm.fit.bottom <- function
 ## This is a recursive function.
 ## It takes in data and fit mhglm to the lowest level of grouping. 
 ## It returns a tree-structured list of mhglm fit objects.
-## The input group MUST be a data frame of factors. TODO: can we take in both data.frame or matrix?
 (x, z, y, group, weights = rep(1, nobs),
  start = NULL, etastart = NULL, mustart = NULL,
  offset = rep(0, nobs), family = gaussian(),
@@ -395,34 +393,45 @@ mhglm.fit.bottom <- function
 
   control <- do.call("mhglm.control", control)
   x <- as.matrix(x)
-  z <- as.matrix(z)
+  z <- lapply(z, as.matrix)
+  ngroupslevel <- length(group)
 
-  if(!is.data.frame(group)){ #TODO: not a good method to identify two-level models
-    m <- mhglm.fit(x = x, z = z, y = y, group = group, weights = weights, 
+  if(ngroupslevel ==1){
+    m <- mhglm.fit(x = x, z = z[[1]], y = y, group = group[[1]], weights = weights, 
 		   start = start, etastart = etastart, mustart = mustart,
 		   offset = offset, family = family, 
 		   control = control, intercept = intercept)
     class(m) <- 'mhglmfit'
     return(m)
+
   } else {
 
-    ngroups <- nlevels(group[,1])
-    levels <- levels(group[,1])
+    ngroups <- nlevels(group[[1]])
+    levels <- levels(group[[1]])
     fit.bottom <- as.list(rep(NULL, ngroups))
-    subsets <- .Call(C_group_subsets, group[,1], ngroups) # group => indices
+    subsets <- .Call(C_group_subsets, group[[1]], ngroups) # group => indices
 
     for(i in seq_len(ngroups)) {
       j <- subsets[[i]]
       yj <- if (is.matrix(y)) y[j,,drop=FALSE] else y[j]
-      groupj <- droplevels(group[j,c(2:ncol(group))])
-      m <- mhglm.fit.bottom(x=cbind(x,z)[j,,drop = FALSE], 
-			    z = z[j,,drop = FALSE], y = yj, 
+      xj <- cbind(x[j,,drop = FALSE], 
+		  (z[[1]])[j,,drop = FALSE])
+
+      groupj <- list()
+      zj <- list()
+      for(r in seq_len(ngroupslevel-1)){
+	groupj[[r]] <- droplevels(group[[r+1]][j])
+	zj[[r]] <- z[[r+1]][j,,drop = FALSE]
+      }
+
+      m <- mhglm.fit.bottom(x=xj, z = zj, y = yj, 
 			    group = groupj, weights = weights[j],
 			    start = start, etastart = etastart, mustart = mustart,
 			    offset = offset[j], family = family, 
 			    control = control, intercept = intercept)
       fit.bottom[[i]]<- m
     }
+
     names(fit.bottom) <- levels
     return(fit.bottom)
 
@@ -441,41 +450,27 @@ mhglm.fit.multilevel <- function
  offset = rep(0, nobs), family = gaussian(),
  control = list(), intercept = TRUE
 ){
+
   control <- do.call("mhglm.control", control)
   x <- as.matrix(x)
-  z <- as.matrix(z)
+  z <- lapply(z, as.matrix)
   xnames <- dimnames(x)[[2L]]
-  znames <- dimnames(z)[[2L]]
-  ynames <- if (is.matrix(y)) rownames(y) else names(y)
+  znames <- lapply(z,function(x){dimnames(x)[[2L]]})
+
   nobs <- NROW(y)
   nfixed <- ncol(x)
-  nrandom <- ncol(z)
-  nvars <- nfixed + nrandom
-  fixed <- (seq_len(nvars) <= nfixed)
-  random <- !fixed
-  nlevels <- if(!is.data.frame(group)) 1 else ncol(group)
-
+  nrandom <- lapply(z,ncol)
+  ngroupslevel <- if(is.list(z)){length(z)} else 0
 
   #----------
   # 'group' input needs special care.
-  # Turn it into a data.frame of factors.
-  if(!is.data.frame(group)){
+  # Turn it into a list of factors
+  if(!is.list(group)){
     stop('group must be a data.frame')
   } else{
-    group.org <- group
-    group <- cbind.data.frame(lapply(group.org,function(x) {factor(x)}))
+    group <- lapply(group,factor)
   }
 
-
-  if (!is.null(start)) {
-    if (length(start) != nfixed) {
-      stop(gettextf(paste0("length of 'start' should equal %d",
-			   " and correspond to initial coefs for %s"),
-		    nfixed, paste(deparse(xnames), collapse=", ")),
-	   domain=NA)
-    }
-    start <- c(start, numeric(nrandom))
-  }
 
   #----------
   # run black box algorithm on groups
@@ -486,26 +481,24 @@ mhglm.fit.multilevel <- function
 
   #----------
   # recursively regress group specific estimate on true fixef and raneef
-  r <- nlevels
+  r <- ngroupslevel
   while ( r>1){
-    fit.bottom <- fit.recursive(fit.bottom, nrandom,control)
+    fit.bottom <- fit.recursive(fit.bottom, nrandom[[r-1]],control)
     r <- r-1
   }
 
   #----------
   # pool dispersion together
-  dispersion.info <- avg.dispersion(fit.bottom,nlevels)
+  dispersion.info <- avg.dispersion(fit.bottom,ngroupslevel)
   dispersion <- dispersion.info[2]/dispersion.info[1]
-
-
 
   #----------
   # Take average of estimated coefficient.cov
-  coef.cov <- as.list(rep(NULL,nlevels))
-  for(r in seq_len(nlevels)){
+  coef.cov <- as.list(rep(NULL,ngroupslevel))
+  for(r in seq_len(ngroupslevel)){
     coef.cov.info <- avg.coef.cov(fit.bottom,r)
     coef.cov[[r]] <- coef.cov.info[[2]]/coef.cov.info[[1]]
-    dimnames(coef.cov[[r]]) <- list(znames, znames)
+    dimnames(coef.cov[[r]]) <- list(znames[[r]], znames[[r]])
   }
 
 
@@ -517,10 +510,13 @@ mhglm.fit.multilevel <- function
   fit <- list(family = family, 
 	      df.residual = dispersion.info[1],
 	      dispersion = dispersion,
+	      prior.weights = weights,
 	      fit = fit.bottom,
 	      coef.cov.all = coef.cov)
 
   fit
 }
+
+
 
 
