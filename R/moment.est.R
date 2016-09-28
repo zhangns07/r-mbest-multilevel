@@ -287,17 +287,22 @@ moment.est.cov.reducer <- function(ret, diagcov)
     l <- eigen.cov$values
     u <- eigen.cov$vectors[,l > 0, drop=FALSE]
     l <- l[l > 0]
-    s <- sqrt(l)
-    s.u.t <- t(u) * s
-    sinv.u.t <- t(u) / s
-    cov.bias <- sinv.u.t %*% bias %*% t(sinv.u.t)
-    eigen.cov.bias <- eigen(cov.bias, symmetric=TRUE)
-    l.bias <- eigen.cov.bias$values
-    u.bias.t <- t(eigen.cov.bias$vectors) %*% s.u.t
-    scale <- max(1, l.bias[1])
-    cov.adj <- (t(u.bias.t)
-		%*% diag((scale - l.bias) / scale, length(l.bias))
-		%*% u.bias.t)
+
+    if(length(l)==0){
+      cov.adj <- diag(0,nrow = nrandom)
+    } else {
+      s <- sqrt(l)
+      s.u.t <- t(u) * s
+      sinv.u.t <- t(u) / s
+      cov.bias <- sinv.u.t %*% bias %*% t(sinv.u.t)
+      eigen.cov.bias <- eigen(cov.bias, symmetric=TRUE)
+      l.bias <- eigen.cov.bias$values
+      u.bias.t <- t(eigen.cov.bias$vectors) %*% s.u.t
+      scale <- max(1, l.bias[1])
+      cov.adj <- (t(u.bias.t)
+		  %*% diag((scale - l.bias) / scale, length(l.bias))
+		  %*% u.bias.t)
+    }
   }
 
   cov <- proj.psd(cov.adj)  # ensure positive definite

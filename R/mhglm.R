@@ -72,7 +72,7 @@ mhglm <- function(formula, family = gaussian, data, weights, subset,
     mf <- mf[c(1L, m)]
     mf$drop.unused.levels <- TRUE
     mf[[1L]] <- quote(stats::model.frame)
-    mf$formula <- lme4::subbars(mf$formula)
+    mf$formula <- lme4::subbars(eval(mf$formula))
     mf <- eval(mf, parent.frame())
 
     # method
@@ -80,7 +80,7 @@ mhglm <- function(formula, family = gaussian, data, weights, subset,
         return(mf)
     if (!is.character(method) && !is.function(method))
         stop("invalid 'method' argument")
-    if (identical(method, "mhglm.fit"))
+    if (identical(method, "mhglm.fit.multilevel"))
         control <- do.call("mhglm.control", control)
 
     # terms
@@ -283,7 +283,9 @@ predict.mhglm <- function(object, newdata = NULL,
             .checkMFClasses(cl, m)
 
         x <- model.matrix(tt.fixed, m, contrasts.arg=object$contrasts.fixed)
-        z <- model.matrix(tt.random, m, contrasts.arg=object$contrasts.random)
+#        z <- model.matrix(tt.random, m, contrasts.arg=object$contrasts.random)
+	z <- lapply(tt.random, function(x){
+		      model.matrix(x, m, contrasts.arg=object$contrasts.random)})
 
         offset <- rep(0, nrow(x))
         if (!is.null(off.num <- attr(tt, "offset")))
