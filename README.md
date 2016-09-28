@@ -29,29 +29,28 @@ slope_g3 <- rnorm(n_level_1 * n_level_2 * n_level_3, sd = 0.25)
 
 noise <- rnorm(length(x))
 
-## The model is y ~ 1 + x + (1 + x || g1/g2/g3),
-## i.e. nested groups and independent covariates.
+## The model is y ~ 1 + x + (1 + x | g1) + (1 + x| g2) + (1 + x|g3)
+## nested groups, independent covariates.
 y <- x * (slope_fix + slope_g1[g1] + slope_g2[g2] + slope_g3[g3]) + 
   intercept_fix + intercept_g1[g1] + intercept_g2[g2] + intercept_g3[g3] + noise
 
+data <- data.frame(x, g1, g2, g3, y)
+
 ## Fit using multilevel mhglm
-no <- length(x)
-mhglm.fit <- mhglm.fit.multilevel(x = cbind(rep(1,no),x),
-                                  z = cbind(rep(1,no),x),
-                                  y = y,
-                                  group =  cbind.data.frame(factor(g1),factor(g2),factor(g3)),
-                                  control = list(standardize = FALSE,diagcov = TRUE))
+mhglm_model <- mhglm(y ~ 1 +  x + (1 + x | g1) + (1 + x | g2) + (1 + x  | g3),
+                         data = data, control = list(standardize = FALSE,diagcov = TRUE))
+
 
 ## Empirical bayes inference
-coef.eb <- ebayes.est.multilevel(mhglm.fit)
+coef.eb <- ranef(mhglm_model)
 
 ## Estimated fixed effects
-mhglm.fit$fit$coefficient.mean
+fixef(mhglm_model)
 ##                   x
 ## 0.8035564 1.1102478
 
 ## Estimated covariance matrix for each level
-mhglm.fit$coef.cov.all
+mhglm_model$coef.cov.all
 ## [[1]]
 ##                    x
 ##   0.9258569 0.000000
