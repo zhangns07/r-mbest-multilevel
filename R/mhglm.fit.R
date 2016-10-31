@@ -261,12 +261,19 @@ construct.reg <- function
 (fit.list, ##<< a list of objects returned by mhglm.fit
  nrandom ##<< number of random effects' covariates
 ){
+
   ngroups <- length(fit.list)
+
+  # add a small positive number 1e-7 to singular values
   newdata <- lapply(fit.list,function(x){
 		      omega <- x$mean.info[[1]]$weight11.sum
-		      omega_invsqrt <- pseudo.solve.sqrt(omega)
-		      newy <- omega_invsqrt %*% x$coefficient.mean
-		      newxz <- omega_invsqrt 
+		      omegasvd <- svd(omega)
+		      omegasvd$d <- pmax(1e-7, omegasvd$d)
+		      omega_sqrt <- omegasvd$v %*% diag(sqrt(omegasvd$d), nrow = nrow(omega)) %*% t(omegasvd$v)
+
+		      newy <- omega_sqrt %*% x$coefficient.mean
+		      newxz <- omega_sqrt 
+
 		      colnames(newxz) <- names(x$coefficient.mean)
 		      list(newy = newy, newxz = newxz) })
 
@@ -321,6 +328,7 @@ control ##<< control parameter from the main function call
 		     y = newdata$y, group = newdata$group, 
 		     family = gaussian(), control = control, 
 		     dispersion = 1e-05)
+#		     dispersion = NULL)
     fit.tree <- c(fit.tree,ret)
 
     # Set the flag so next time the function is called,

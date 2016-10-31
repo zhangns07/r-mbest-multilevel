@@ -32,6 +32,11 @@ proj.psd <- function(x)
 }
 
 
+
+
+
+
+
 pseudo.solve <- function(a, b)
 {
     withCallingHandlers({
@@ -66,8 +71,12 @@ pseudo.solve <- function(a, b)
         }
     } else {
         a.eigen <- eigen(a, symmetric=TRUE)
-        u <- a.eigen$vectors[,seq_len(rank),drop=FALSE]
-        l <- a.eigen$values[seq_len(rank)]
+
+	# don't use rank from chol
+	rank <- min(sum(a.eigen$values>1e-7),rank)
+	u <- a.eigen$vectors[,seq_len(rank),drop=FALSE]
+	l <- a.eigen$values[seq_len(rank)]
+
         if (missing(b)) {
             x <- u %*% (t(u) / l)
         } else {
@@ -84,22 +93,27 @@ pseudo.solve <- function(a, b)
 pseudo.solve.sqrt <- function(a, b)
 {
   # returns a^(-1/2) %*% b
-    withCallingHandlers({
-        a.chol <- chol(a, pivot=TRUE, tol = 1e-7)
-    }, warning = function(w) {
-        if (conditionMessage(w) == "the matrix is either rank-deficient or indefinite")
-            invokeRestart("muffleWarning")
-    })
+#    withCallingHandlers({
+#        a.chol <- chol(a, pivot=TRUE, tol = 1e-7)
+#    }, warning = function(w) {
+#        if (conditionMessage(w) == "the matrix is either rank-deficient or indefinite")
+#            invokeRestart("muffleWarning")
+#    })
 
-    rank <- attr(a.chol, "rank")
-    n <- nrow(a.chol)
-    deficient <- rank < n
+#    don't use rank fro chol
+#    rank <- attr(a.chol, "rank")
+#    n <- nrow(a.chol)
+#    deficient <- rank < n
 
     a.eigen <- eigen(a, symmetric=TRUE)
+    rank <- sum(a.eigen$values>1e-7)
+
+    n <- nrow(a)
+    deficient <- rank < n
+
     u <- a.eigen$vectors[,seq_len(rank),drop=FALSE]
-    # due to numeric error, sometimes the eigenvalue is negative,
-    # for example -1.964989e-14. Therefore use abs().
-    l <- abs(a.eigen$values[seq_len(rank)])
+    l <- a.eigen$values[seq_len(rank)]
+
     if (missing(b)) {
       x <- u %*% (t(u) / sqrt(l))
     } else {
