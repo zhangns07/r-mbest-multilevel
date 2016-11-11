@@ -469,8 +469,13 @@ ranef.mhglm <- function
   # print out ranef
   coefficients.eb<- as.list(rep(NULL,ngroupslevel))
   for(r in seq_len(ngroupslevel)){
-    coefficients.eb[[r]] <- ebayes.est.print(object$fit,r, condVar)
+
+    # order ranef rows so it matches the group levels
+#    coefficients.eb[[r]] <- ebayes.est.print(object$fit,r, condVar)
+    coef.eb.tmp  <- ebayes.est.print(object$fit,r, condVar)
+    coefficients.eb[[r]] <- coef.eb.tmp[object$group.levels[[r]],,drop = FALSE]
   }
+
   class(coefficients.eb) <- 'ranef.mhglm'
   return(coefficients.eb)
 }
