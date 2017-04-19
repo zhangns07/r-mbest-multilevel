@@ -327,8 +327,7 @@ control ##<< control parameter from the main function call
     ret <- mhglm.fit(x = newdata$x, z = newdata$z, 
 		     y = newdata$y, group = newdata$group, 
 		     family = gaussian(), control = control, 
-		     dispersion = 1e-05)
-#		     dispersion = NULL)
+		     dispersion = 1)
     fit.tree <- c(fit.tree,ret)
 
     # Set the flag so next time the function is called,

@@ -55,18 +55,21 @@ moment.est.mean.mapper <- function(coefficients, nfixed, subspace, precision, di
 
     cov22 <- t(u2s) %*% start.cov %*% u2s
     w.inv <- cov22 + diag(sigma2, r, r)
-    R.w.inv <- chol(w.inv)
-    R.u1s.t <- backsolve(R.w.inv, t(u1s), transpose=TRUE)
-    R.u2s.t <- backsolve(R.w.inv, t(u2s), transpose=TRUE)
+#    R.w.inv <- chol(w.inv)
+#    R.u1s.t <- backsolve(R.w.inv, t(u1s), transpose=TRUE)
+#    R.u2s.t <- backsolve(R.w.inv, t(u2s), transpose=TRUE)
 
-    w11 <- t(R.u1s.t) %*% R.u1s.t
-    w12 <- t(R.u1s.t) %*% R.u2s.t
+#    w11 <- t(R.u1s.t) %*% R.u1s.t
+#    w12 <- t(R.u1s.t) %*% R.u2s.t
 
-    R2.u2s.t <- backsolve(R.w.inv, R.u2s.t)
+    w11 <- u1s %*% pseudo.solve(w.inv,t(u1s))
+    w12 <- u1s %*% pseudo.solve(w.inv,t(u2s))
+
 
     w1b <- (w11 %*% coefficients[i,fixed]
 	    + w12 %*% coefficients[i,random])
 
+    if(max(abs(w1b))>100){stop}
     weight11.sum <- weight11.sum + w11
     weight1.coef.sum <- weight1.coef.sum + w1b
   }
@@ -162,14 +165,17 @@ moment.est.cov.mapper <- function(coefficients, nfixed, subspace, precision, dis
 
     cov22 <- t(u2s) %*% start.cov %*% u2s
     w.inv <- cov22 + diag(sigma2, r, r)
-    R.w.inv <- chol(w.inv)
-    R.u1s.t <- backsolve(R.w.inv, t(u1s), transpose=TRUE)
-    R.u2s.t <- backsolve(R.w.inv, t(u2s), transpose=TRUE)
+#    R.w.inv <- chol(w.inv)
+#    R.u1s.t <- backsolve(R.w.inv, t(u1s), transpose=TRUE)
+#    R.u2s.t <- backsolve(R.w.inv, t(u2s), transpose=TRUE)
+#    w12 <- t(R.u1s.t) %*% R.u2s.t
+#    w22 <- t(R.u2s.t) %*% R.u2s.t
+    w12 <- u1s %*% pseudo.solve(w.inv,t(u2s))
+    w22 <- u2s %*% pseudo.solve(w.inv,t(u2s))
 
-    w12 <- t(R.u1s.t) %*% R.u2s.t
-    w22 <- t(R.u2s.t) %*% R.u2s.t
 
-    R2.u2s.t <- backsolve(R.w.inv, R.u2s.t)
+#    R2.u2s.t <- backsolve(R.w.inv, R.u2s.t)
+    R2.u2s.t <- pseudo.solve(w.inv,t(u2s))
 
     if(diagcov)
       B <- sigma2 * apply((R2.u2s.t)^2,2,sum)
